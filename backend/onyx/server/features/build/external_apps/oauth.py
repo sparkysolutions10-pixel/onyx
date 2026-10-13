@@ -19,7 +19,10 @@ from onyx.db.external_app import (
 from onyx.db.models import ExternalApp, User
 from onyx.error_handling.error_codes import OnyxErrorCode
 from onyx.error_handling.exceptions import OnyxError
-from onyx.external_apps.providers.base import OAuthExternalAppProvider
+from onyx.external_apps.providers.base import (
+    OAuthEndpoints,
+    OAuthExternalAppProvider,
+)
 from onyx.external_apps.providers.registry import get_provider_or_raise
 from onyx.external_apps.token_utils import stamp_expires_at
 from onyx.redis.redis_pool import get_redis_client
@@ -56,6 +59,16 @@ def _oauth_client_credentials(app: ExternalApp) -> tuple[str, str]:
             "ask an admin to fill them in on the Manage Apps page.",
         )
     return client_id, client_secret
+
+
+def _oauth_endpoints_for(
+    app: ExternalApp, provider: OAuthExternalAppProvider
+) -> OAuthEndpoints:
+    """The authorize/token URLs in force for ``app``. Static for most providers;
+    resolved from the admin's config for one hosted per account (Zendesk)."""
+    return provider.resolve_oauth_endpoints(
+        app.organization_credentials.get_value(apply_mask=False)
+    )
 
 
 def _frontend_callback_url() -> str:
@@ -115,6 +128,7 @@ def start_external_app_oauth(
 
     redirect_uri = _frontend_callback_url()
     oauth = provider.spec.oauth
+    endpoints = _oauth_endpoints_for(app, provider)
     params: dict[str, str] = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
@@ -127,7 +141,7 @@ def start_external_app_oauth(
         params[oauth.optional_scope_param] = oauth.optional_scope
     # urlencode so URI-shaped scopes (Google) get `:` and `/`
     # percent-encoded.
-    authorize_url = f"{oauth.authorize_url}?{urlencode(params)}"
+    authorize_url = f"{endpoints.authorize_url}?{urlencode(params)}"
     return OAuthStartResponse(authorize_url=authorize_url)
 
 
@@ -176,16 +190,16 @@ def handle_external_app_oauth_callback(
         )
 
     provider = _oauth_provider_or_raise(app)
-    oauth = provider.spec.oauth
     # Re-read in case the admin rotated creds between /start and /callback.
     client_id, client_secret = _oauth_client_credentials(app)
+    endpoints = _oauth_endpoints_for(app, provider)
 
     token_request = provider.build_token_exchange_request(
         request.code, client_id, client_secret, _frontend_callback_url()
     )
     try:
         response = requests.post(
-            oauth.token_url,
+            endpoints.token_url,
             headers=token_request.headers,
             data=None if token_request.json_encoded else token_request.body,
             json=token_request.body if token_request.json_encoded else None,
