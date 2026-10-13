@@ -64,8 +64,7 @@ def _oauth_client_credentials(app: ExternalApp) -> tuple[str, str]:
 def _oauth_endpoints_for(
     app: ExternalApp, provider: OAuthExternalAppProvider
 ) -> OAuthEndpoints:
-    """The authorize/token URLs in force for ``app``. Static for most providers;
-    resolved from the admin's config for one hosted per account (Zendesk)."""
+    """The authorize/token URLs in force for ``app``."""
     return provider.resolve_oauth_endpoints(
         app.organization_credentials.get_value(apply_mask=False)
     )
