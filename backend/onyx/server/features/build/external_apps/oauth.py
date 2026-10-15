@@ -20,7 +20,6 @@ from onyx.db.models import ExternalApp, User
 from onyx.error_handling.error_codes import OnyxErrorCode
 from onyx.error_handling.exceptions import OnyxError
 from onyx.external_apps.providers.base import (
-    OAuthEndpoints,
     OAuthExternalAppProvider,
 )
 from onyx.external_apps.providers.registry import get_provider_or_raise
@@ -59,15 +58,6 @@ def _oauth_client_credentials(app: ExternalApp) -> tuple[str, str]:
             "ask an admin to fill them in on the Manage Apps page.",
         )
     return client_id, client_secret
-
-
-def _oauth_endpoints_for(
-    app: ExternalApp, provider: OAuthExternalAppProvider
-) -> OAuthEndpoints:
-    """The authorize/token URLs in force for ``app``."""
-    return provider.resolve_oauth_endpoints(
-        app.organization_credentials.get_value(apply_mask=False)
-    )
 
 
 def _frontend_callback_url() -> str:
@@ -127,7 +117,9 @@ def start_external_app_oauth(
 
     redirect_uri = _frontend_callback_url()
     oauth = provider.spec.oauth
-    endpoints = _oauth_endpoints_for(app, provider)
+    endpoints = provider.resolve_oauth_endpoints(
+        app.organization_credentials.get_value(apply_mask=False)
+    )
     params: dict[str, str] = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
@@ -191,7 +183,9 @@ def handle_external_app_oauth_callback(
     provider = _oauth_provider_or_raise(app)
     # Re-read in case the admin rotated creds between /start and /callback.
     client_id, client_secret = _oauth_client_credentials(app)
-    endpoints = _oauth_endpoints_for(app, provider)
+    endpoints = provider.resolve_oauth_endpoints(
+        app.organization_credentials.get_value(apply_mask=False)
+    )
 
     token_request = provider.build_token_exchange_request(
         request.code, client_id, client_secret, _frontend_callback_url()
